@@ -39,7 +39,9 @@ create_covmatrix <- function(min,max,n,S, seed=1111){
 ### sample_means: vector of means for each exposure used to generate multivariate normal data
 ### sample_covariance_matrix: covariance matrix for exposures used to generate multivariate normal data
 ### sd: standard deviation of outcome variable
-generate_datasets <- function(N, n, betas, effect, sample_means, sample_covariance_matrix, sd, covariates=F){
+### covariates: whether or not covariates will be included in the model
+### covar_betas: if covariates = T, then the weights for each of the covariates (parity, bmi under, bmi_over, bmi_obese, alcohol use)
+generate_datasets <- function(N, n, betas, effect, sample_means, sample_covariance_matrix, sd, covariates=F,covar_betas=NULL){
   datasets <- list()
   
   #loop through to create N simulated datasets
@@ -60,21 +62,28 @@ generate_datasets <- function(N, n, betas, effect, sample_means, sample_covarian
     
     if(covariates){
       # generate covariates
-      x_trans$parity=rnorm(n=n, mu=2,sd=1) #continuous
+      covars <- data.frame(cbind)
+      parity=rnorm(n=n, mu=2,sd=1) #continuous
       bmi=rchisq(n = 10, df = 5.5) 
-      bmi=pmin(x_trans$bmi * 2 + 18, 58)
-      x_trans$bmi_under=ifelse(bmi < 18.5,1,0) #ordinal - reference is normal
-      x_trans$bmi_over=ifelse(bmi >= 25 & bmi < 30,1,0)
-      x_trans$bmi_ob=ifelse(bmi >= 30,1,0)
+      bmi=pmin(bmi * 2 + 18, 58)
+      bmi_under=ifelse(bmi < 18.5,1,0) #ordinal - reference is normal
+      bmi_over=ifelse(bmi >= 25 & bmi < 30,1,0)
+      bmi_ob=ifelse(bmi >= 30,1,0)
       
-        #https://stats.oarc.ucla.edu/r/codefragments/mesimulation/
-      x_trans$alc_use=rbinom(n=n,p=0.5) #binary - update probability as necessary
+      alc_use=rbinom(n=n,p=0.5) #binary - update probability as necessary
+      #https://stats.oarc.ucla.edu/r/codefragments/mesimulation/
+      
+      covars <- data.frame(cbind(parity,bmi_under,bmi_over,bmi_ob,alc_use))
+      
+      # Generate outcome variable with covariates
+      df <- x_trans %>% mutate(mu=effect*(as.matrix(x_trans) %*% betas)+(as.matrix(covars) %*% covar_betas))
+      
+      
+    } else{
+      # Generate outcome variable with no covariates
+      df <- x_trans %>% mutate(mu=effect*(as.matrix(x_trans) %*% betas))
       
     }
-    
-    # Generate outcome variable
-    df <- x_trans %>% mutate(mu=effect*(as.matrix(x_trans) %*% betas))
-    
     df$y = rnorm(n,df$mu,sd)  # Y_i ~ N(mu_i, sd)
     
     ### save whole dataset
