@@ -34,6 +34,7 @@ create_covmatrix <- function(min,max,n,S, seed=1111){
 #creates and returns N datasets based on specified exposure weights and overall effect
 ### N: number of simulated datasets to produce
 ### n: number of observations in each dataset
+### q: number of quartiles to transform exposures into
 ### betas: vector of weights for exposure variables
 ### effect: overall effect size of exposure variables on outcome
 ### sample_means: vector of means for each exposure used to generate multivariate normal data
@@ -41,7 +42,7 @@ create_covmatrix <- function(min,max,n,S, seed=1111){
 ### sd: standard deviation of outcome variable
 ### covariates: whether or not covariates will be included in the model
 ### covar_betas: if covariates = T, then the weights for each of the covariates (parity, bmi under, bmi_over, bmi_obese, alcohol use)
-generate_datasets <- function(N, n, betas, effect, sample_means, sample_covariance_matrix, sd, covariates=F,covar_betas=NULL){
+generate_datasets <- function(N, n, q=10,betas, effect, sample_means, sample_covariance_matrix, sd, covariates=F,covar_betas=NULL){
   datasets <- list()
   
   #loop through to create N simulated datasets
@@ -63,21 +64,21 @@ generate_datasets <- function(N, n, betas, effect, sample_means, sample_covarian
     if(covariates){
       # generate covariates
       covars <- data.frame(cbind)
-      parity=rnorm(n=n, mu=2,sd=1) #continuous
-      bmi=rchisq(n = 10, df = 5.5) 
+      parity=rnorm(n=n, mean=2,sd=1) #continuous
+      bmi=rchisq(n = n, df = 2) 
       bmi=pmin(bmi * 2 + 18, 58)
       bmi_under=ifelse(bmi < 18.5,1,0) #ordinal - reference is normal
       bmi_over=ifelse(bmi >= 25 & bmi < 30,1,0)
       bmi_ob=ifelse(bmi >= 30,1,0)
       
-      alc_use=rbinom(n=n,p=0.5) #binary - update probability as necessary
+      alc_use=rbinom(n=n,p=0.5, size=1) #binary - update probability as necessary
       #https://stats.oarc.ucla.edu/r/codefragments/mesimulation/
       
       covars <- data.frame(cbind(parity,bmi_under,bmi_over,bmi_ob,alc_use))
       
       # Generate outcome variable with covariates
       df <- x_trans %>% mutate(mu=effect*(as.matrix(x_trans) %*% betas)+(as.matrix(covars) %*% covar_betas))
-      
+      df <- cbind(df,covars)
       
     } else{
       # Generate outcome variable with no covariates
@@ -92,23 +93,26 @@ generate_datasets <- function(N, n, betas, effect, sample_means, sample_covarian
   return(datasets)
 }
 
-simulate_wqs <- function(datasets, nexp=10, q=10 , b=100, betas, effect=1 ){
-  #names of exposure columns
-  Xs <- datasets[[1]] %>% dplyr::select(-y,-mu) %>% names(.)
-  
-  #output for WQS weights
-  weights_all <- as.data.frame(matrix(nrow=0,ncol=8))
-  names(weights_all) <- c("exp","estimate","stde","lower","upper","containsT","contains0")
-  
-  #loop through N datasets
-  for (i in 1:length(datasets)) {
-    df <- datasets[[i]]
-    # we run the model and save the results in the variable "results"
-    results <- gwqs(y ~ wqs, mix_name = Xs, data = df, 
+#Run WQS on dataframe and return estimate and CI for each exposure and overall effect
+#nexp: number of exposures
+#q: number of quantiles that exposures will be transformed to
+#b: number of bootstrap iterations
+#covariates: whether to include covariates in the analysis
+#Xs: vector with names of exposure variables
+#i: ith dataset being run in simulation (for seed setting)
+simulate_wqs <- function(df, nexp=10, q=10 , b=100,covariates=F,Xs,i=1 ){
+    if(covariates){
+      results <- gwqs(y ~ wqs+parity+bmi_under+bmi_over+bmi_ob+alc_use, mix_name = Xs, data = df, 
+                      q = q, validation = 0.6, b = b, b1_pos = T, 
+                      b1_constr = T, family = "gaussian", seed = i)
+    } else{
+      # we run the model and save the results in the variable "results"
+      results <- gwqs(y ~ wqs, mix_name = Xs, data = df, 
                     q = q, validation = 0.6, b = b, b1_pos = T, 
-                    b1_constr = T, family = "gaussian", seed = 2016)
+                    b1_constr = T, family = "gaussian", seed = i)
     #Error if I set b1_constr=F: There are no positive b1 in the bootstrapped models
     
+    }
     #final weights for exposure variables
     df_weights <- results$final_weights %>% dplyr::rename(exp=mix_name, estimate=mean_weight) %>%
       remove_rownames()
@@ -130,63 +134,26 @@ simulate_wqs <- function(datasets, nexp=10, q=10 , b=100, betas, effect=1 ){
     #combine estimates and confidance band
     df_weights <- df_weights %>% inner_join(conf_band,by=c("exp")) %>%
       dplyr::rename(Lower=`2.5%`,Upper=`97.5%`)
-    
-    #add true value, and if true value falls in CI
-    betas_df <- as.data.frame(cbind(Xs,betas))
-    betas_df <- rbind(betas_df,c("Overall",effect))
-    betas_df$betas <- as.numeric(betas_df$betas)
-    
-    df_weights <- df_weights %>% left_join(betas_df,c("exp"="Xs")) %>% as.data.frame %>%
-      mutate(containsT=case_when(
-        betas >= as.numeric(Lower) & betas <= as.numeric(Upper) ~1, TRUE ~ 0),
-        contains0=case_when(
-          as.numeric(Lower) < 0.001 ~ 1, #threshold to consider as null
-          TRUE ~ 0))
-    
-    #combine with beta estimates of other datasets
-    weights_all <- rbind(weights_all,df_weights)
-    
-    
-  }
   
-  output <- weights_all %>% 
-    #convert to numeric columns
-    mutate(weight=as.numeric(estimate)) %>% 
-    #Take average of betas for each x 
-    reframe(true=mean(betas),
-            mean=mean(weight),
-            Power=case_when(betas !=0 ~ sum(contains0==0)/n()),
-            TypeI=case_when(betas ==0 ~ sum(contains0==0)/n()),
-            containsTrate=sum(containsT==1)/n(), .by = exp) %>% unique() %>%
-    as.data.frame() %>% 
-    mutate_if(is.numeric, round, digits=3) %>%
-    arrange(-mean)
-  
-  #convert exposure column to rownmaes
-  output <- output %>% column_to_rownames(var="exp")
-  #sort by X1, X2, ...
-  output <- output[c("Overall",Xs),]
-  
-  return(output)
+  return(df_weights)
 }
 
-simulate_qgcomp <- function(datasets,betas,q=10,B=100, effect=1){
-  #names of exposure columns
-  Xs <- datasets[[1]] %>% dplyr::select(-y,-mu) %>% names(.)
-  
-  #output for qgcomp weights
-  weights_all <- as.data.frame(matrix(nrow=0,ncol=8))
-  names(weights_all) <- c("exp","estimate","stde","lower","upper","containsT","contains0")
-  
-  #loop through N datasets
-  for (i in 1:length(datasets)) {
-    df <- datasets[[i]]
-    # we run the model and save the results in the variable "results"
-    results <- qgcomp.boot(y ~ x1+x2+x3+x4+x5+x6+x7+x8+x9+x10,
+#Run qgcomp on dataframe and return estimate and CI for each exposure and overall effect
+#q: number of quantiles that exposures will be transformed to
+#b: number of bootstrap iterations
+#Xs: vector with names of exposure variables
+#i: ith dataset being run in simulation (for seed setting)
+simulate_qgcomp <- function(df,q=10,b=100,Xs,i=1){
+
+   # we run the model and save the results in the variable "results"
+    results <- qgcomp.boot(y ~ .,
                            expnms=Xs,
-                           df, family=gaussian(), q=q, B=B, seed=2016)
-    
-    df_weights <- results[["fit"]][["coefficients"]][-1] %>% as.data.frame() %>%
+                           df, family=gaussian(), q=q, B=b, seed=i)
+    df_weights <- results[["fit"]][["coefficients"]][-1] %>% as.data.frame() 
+    #select only exposure variables
+    df_weights <- df_weights %>%
+      filter(row.names(df_weights) %in% Xs) %>%
+      #rename columns
       rownames_to_column(var = "exp") 
     names(df_weights) <- c("exp","estimate")
     
@@ -194,36 +161,45 @@ simulate_qgcomp <- function(datasets,betas,q=10,B=100, effect=1){
     df_weights$exp <- as.character(df_weights$exp)
     df_weights <- rbind(df_weights,c("Overall",summary(results)$coefficients[-1,1]))
     
-    stde_weights <- sqrt(diag(results$cov.yhat))
+    stde_weights <- summary(results[["fit"]])$coefficients[Xs,2]
     
-    df_weights$stde <- c(stde_weights ,summary(results)$coefficients[-1,2])
+    df_weights$stde <- c(stde_weights ,Overall=summary(results)$coefficients[-1,2])
     
-    #add confidence interval 
-    
-    ###use z-score rather than t
+    ###use normal distribution to calculate confidence interval for all exposures/overall effect
     df_weights <- df_weights %>% 
       mutate(Lower=as.numeric(estimate) - (1.96*stde),
              Upper=as.numeric(estimate) + (1.96*stde))
     
-    #add true value, and if true value falls in CI
-    betas_df <- as.data.frame(cbind(Xs,betas))
-    betas_df <- rbind(betas_df,c("Overall",effect))
-    betas_df$betas <- as.numeric(betas_df$betas)
-    
-    df_weights <- df_weights %>% left_join(betas_df,c("exp"="Xs")) %>% as.data.frame %>%
-      mutate(containsT=case_when(
-        betas >= as.numeric(Lower) & betas <= as.numeric(Upper) ~1, TRUE ~ 0),
-        contains0=case_when(
-          as.numeric(Lower) <= 0 & as.numeric(Upper) >= 0 ~ 1,
-          #as.numeric(Lower) < 0.001 ~ 1, #threshold to consider as null
-          TRUE ~ 0))
-    
-    #combine with beta estimates of other datasets
-    weights_all <- rbind(weights_all,df_weights)
-    
-    
-  }
+    return(df_weights)
+}
+
+#function that calculates whether the confidence interval for each exposure estimate and overall estimate contains 0 and true rate
+### df_weights: data frame with 5 columns containing the exposure name, stde, lower CI bound, upper CI bound
+### betas_df: dataframe where first column is exposure names and second column are the true betas
+### threshold: threshold for lower bound of CI to be considered approximately 0
+### weights_all: data frame with 3 additional columns (true beta, contains0, containsT) with results from all simulations thus far
+calculate_CI_contains <- function(df_weights,betas_df,threshold,weights_all){
+  #Calculate whether interval contains 0 and contains true beta
+  df_weights <- df_weights %>% left_join(betas_df,c("exp"="Xs")) %>% as.data.frame %>%
+    mutate(containsT=case_when(
+      betas >= as.numeric(Lower) & betas <= as.numeric(Upper) ~1, TRUE ~ 0),
+      contains0=case_when(
+        as.numeric(Lower) < threshold ~ 1, #threshold to consider as null
+        TRUE ~ 0))
   
+  weights_all <- rbind(weights_all, df_weights)
+  
+  return(weights_all)
+}
+
+#Calculate Power, Type I error, and whether true value is contained for each exposure and overall effect
+#weights_all: dataframe containing results from all simulations with the following columns:
+  #estimate: estimate from the simulation
+  #betas: true value used to generate datasets
+  #contains0: whether the CI for the estimate contains 0
+  #containsT: whether the CI for the estimate contains the true value (betas)
+  #exp: exposure (or "Overall") corresponding to each row
+calculate_power_typeI <- function(weights_all){
   output <- weights_all %>% 
     #convert to numeric columns
     mutate(weight=as.numeric(estimate)) %>% 
@@ -245,6 +221,56 @@ simulate_qgcomp <- function(datasets,betas,q=10,B=100, effect=1){
   return(output)
 }
 
+#Wrapper function that runs WQS and qgcomp on each simulated dataset and outputs Type I error, Power, and contains True rate for each exposure and overall effect
+#datasets: list of simulated dataframes
+#nexp: number of exposure variables
+#q: number of quantiles that exposures will be transformed to
+#b: number of bootstrap iterations
+#betas: true weights of exposure variables used to generate datasets
+#effect: overall effect size used to generate datasets
+#covariates: whether to include covariates in the model
+simulate_analysis <- function(datasets, nexp=10, q=10 , b=100, betas, effect=1,covariates=F){
+  #names of exposure columns
+  Xs <- datasets[[1]] %>% dplyr::select(contains("x")) %>% names(.)
+  
+  #output for WQS weights
+  weights_all_wqs <- as.data.frame(matrix(nrow=0,ncol=8))
+  names(weights_all) <- c("exp","estimate","stde","lower","upper","containsT","contains0")
+  
+  #output for qgcomp weights
+  weights_all_qgcomp <- weights_all_wqs
+  
+  #loop through N datasets
+  for (i in 1:length(datasets)) {
+    df <- datasets[[i]]
+  
+    #remove mu before running
+    df <- df %>% select(-mu)
+    
+    #Run WQS on dataframe
+    df_weights_wqs <- simulate_wqs(df, nexp=nexp, q=q , b=b, covariates=covariates,Xs=Xs,i=i)
+    #Run qgcomp on dataframe
+    df_weights_qgcomp <- simulate_qgcomp(df, q=q , b=b,Xs=Xs,i=i)
+    
+    #Combine true betas and overall effect into one dataframe
+    betas_df <- as.data.frame(cbind(Xs,betas))
+    betas_df <- rbind(betas_df,c("Overall",effect))
+    betas_df$betas <- as.numeric(betas_df$betas)
+    
+    #Calculate whether interval contains 0 and contains true beta for this dataset 
+    weights_all_wqs <- calculate_CI_contains(df_weights=df_weights_wqs,
+                                             weights_all=weights_all_wqs,
+                                             betas_df=betas_df,threshold=.001)
+    weights_all_qgcomp <- calculate_CI_contains(df_weights=df_weights_qgcomp,
+                                                weights_all=weights_all_qgcomp,
+                                                betas_df=betas_df,threshold=.001)
+  }
+  
+  out_wqs <- calculate_power_typeI(weights_all_wqs)
+  out_qgcomp <- calculate_power_typeI(weights_all_qgcomp)
+  
+  return(list(out_wqs,out_qgcomp))
+}
 
 #randomly drop % of observations for each exposure
 ###datasets = list of dataframes from which to drop observations
