@@ -1,0 +1,101 @@
+---
+title: "Simulate Random misssing"
+author: "Megan Grieco"
+date: "2023-09-01"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(kableExtra) #for formatting output tables
+library(mice)
+source("~/OneDrive - Emory University/Courses/Thesis/simulate_power_typeI_source.R") #functions
+```
+
+
+```{r simulate datasets}
+nexp <- 10 #number of exposures
+sample_means <- rnorm(nexp,5,1) #Mean value for each exposure pulled from normal distribution
+S <- rep(1,nexp) #vector of standard deviations = all 1
+
+
+N=100           #Define total number of simulated datasets
+n=1000          #Define number of observations per dataset
+q=10            #Define number of quantiles for WQS
+betas=c(0.1,0.25,0.65,rep(0,7)) #define weights of exposures
+
+#generate covariance matrix based on correlations between exposures
+sample_covariance_matrix <- create_covmatrix(min=0.5,max=0.75,n=nexp,S=S)
+
+#simulate N datasets
+datasets <- generate_datasets(N=N, n=n, betas=betas, effect=1, sample_means=sample_means, sample_covariance_matrix=sample_covariance_matrix, sd=1)
+```
+
+```{r random missing}
+datasets_missing <- random_missing(datasets,percent=5)
+
+datasets_missing_completecases <- missing_completecases(datasets_missing)
+```
+
+```{r}
+#get average number of observations reduced to due to missingness
+bind_rows(datasets_missing_completecases, .id="id") %>%
+    group_by(id) %>%
+    summarise(num_obs = n(), .groups = "drop" ) %>% summarize(num_obs_avg = mean(num_obs)) %>% round()
+```
+
+```{r wqs random missing}
+#Run WQS on each simulated dataset with missing values
+result <- simulate_wqs(datasets=datasets_missing_completecases,betas=betas)
+
+result$Power = formattable::percent(result$Power, digits = 0) 
+result$TypeI = formattable::percent(result$TypeI, digits = 0) 
+result$containsTrate = formattable::percent(result$containsTrate, digits = 0) 
+options(knitr.kable.NA = '')
+kable(result, booktabs=TRUE, escape=FALSE, col.names = c("True Beta","Mean Estimate","Power","Type I error","CIs with true value") ) %>% 
+   kable_styling(bootstrap_options = c("condensed"))
+```
+
+```{r qgcomp missing}
+#Run qgcomp on each simulated dataset (with random missing)
+result <- simulate_qgcomp(datasets_missing_completecases,betas=betas,q=q)
+
+result$Power = formattable::percent(result$Power, digits = 0) 
+result$TypeI = formattable::percent(result$TypeI, digits = 0) 
+result$containsTrate = formattable::percent(result$containsTrate, digits = 0) 
+options(knitr.kable.NA = '')
+kable(result, booktabs=TRUE, escape=FALSE, col.names = c("True Beta","Mean Estimate","Power","Type I error","CIs with true value") ) %>% 
+   kable_styling(bootstrap_options = c("condensed"))
+```
+
+## Imputation
+
+```{r mice}
+mice_imputed <- mice_impute(datasets_missing)
+```
+
+```{r }
+#Run WQS on each simulated dataset with imputed values using MICE
+result <- simulate_wqs(datasets=mice_imputed,betas=betas)
+
+result$Power = formattable::percent(result$Power, digits = 0) 
+result$TypeI = formattable::percent(result$TypeI, digits = 0) 
+result$containsTrate = formattable::percent(result$containsTrate, digits = 0) 
+options(knitr.kable.NA = '')
+kable(result, booktabs=TRUE, escape=FALSE, col.names = c("True Beta","Mean Estimate","Power","Type I error","CIs with true value") ) %>% 
+   kable_styling(bootstrap_options = c("condensed"))
+
+```
+
+```{r}
+#Run QGCOMP on each simulated dataset with imputed values using MICE
+result <- simulate_qgcomp(mice_imputed,betas=betas,q=q)
+
+result$Power = formattable::percent(result$Power, digits = 0) 
+result$TypeI = formattable::percent(result$TypeI, digits = 0) 
+result$containsTrate = formattable::percent(result$containsTrate, digits = 0) 
+options(knitr.kable.NA = '')
+kable(result, booktabs=TRUE, escape=FALSE, col.names = c("True Beta","Mean Estimate","Power","Type I error","CIs with true value") ) %>% 
+   kable_styling(bootstrap_options = c("condensed"))
+```
+

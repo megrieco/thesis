@@ -1,0 +1,80 @@
+---
+title: "Untitled"
+author: "Megan Grieco"
+date: "2023-07-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(kableExtra) #for formatting output tables
+source("~/OneDrive - Emory University/Courses/Thesis/simulate_power_typeI_source.R") #functions
+```
+
+
+```{r simulate datasets}
+nexp <- 10 #number of exposures
+sample_means <- rnorm(nexp,5,1) #Mean value for each exposure pulled from normal distribution
+S <- rep(1,nexp) #vector of standard deviations = all 1
+
+
+N=100           #Define total number of simulated datasets
+n=1000          #Define number of observations per dataset
+q=10            #Define number of quantiles for WQS
+betas=c(0.1,0.25,0.65,rep(0,7)) #define weights of exposures
+
+#generate covariance matrix based on correlations between exposures
+sample_covariance_matrix <- create_covmatrix(min=0.5,max=0.75,n=nexp,S=S)
+
+#simulate N datasets
+datasets <- generate_datasets(N=N, n=n, betas=betas, effect=1, sample_means=sample_means, sample_covariance_matrix=sample_covariance_matrix, sd=1)
+
+
+
+```
+
+```{r wqs}
+#Run WQS on each simulated dataset - .05 threshold for Lower bound
+simulate_wqs(datasets,betas=betas)
+
+```
+
+```{r wqs}
+#Run WQS on each simulated dataset - .01 threshold for Lower bound
+simulate_wqs(datasets,betas=betas)
+
+```
+```{r wqs}
+#Run WQS on each simulated dataset - .005 threshold for Lower bound
+simulate_wqs(datasets,betas=betas)
+
+```
+```{r wqs}
+#Run WQS on each simulated dataset - .001 threshold for Lower bound
+result <- simulate_wqs(datasets,betas=betas) 
+
+result$Power = formattable::percent(result$Power, digits = 0) 
+result$TypeI = formattable::percent(result$TypeI, digits = 0) 
+result$containsTrate = formattable::percent(result$containsTrate, digits = 0) 
+options(knitr.kable.NA = '')
+kable(result, booktabs=TRUE, escape=FALSE, col.names = c("True Beta","Mean Estimate","Power","Type I error","CIs with true value") ) %>% 
+   kable_styling(bootstrap_options = c("condensed"))
+
+```
+
+```{r qgcomp}
+###try just doing 25th/75th for overall estimate only
+#Run qgcomp on each simulated dataset - .001 threshold
+result <- simulate_qgcomp(datasets,betas=betas,q=q)
+
+result$Power = formattable::percent(result$Power, digits = 0) 
+result$TypeI = formattable::percent(result$TypeI, digits = 0) 
+result$containsTrate = formattable::percent(result$containsTrate, digits = 0) 
+options(knitr.kable.NA = '')
+kable(result, booktabs=TRUE, escape=FALSE, col.names = c("True Beta","Mean Estimate","Power","Type I error","CIs with true value") ) %>% 
+   kable_styling(bootstrap_options = c("condensed"))
+
+```
+
+
