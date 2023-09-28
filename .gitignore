@@ -1,0 +1,9 @@
+#ignore all .DS_Store
+*.DS_Store
+#ignore all .Rmd files
+*.Rmd
+#ignore certain directories
+OLD
+Documents
+.Rhistory
+Shared folders/
