@@ -1,15 +1,17 @@
-project_dir <- "~/OneDrive - Emory University/Courses/Thesis/"
+project_dir <- "/home/mgrieco/Thesis/Test-231003/"
 
 source(paste0(project_dir,"simulate_power_typeI_source.R"))
 set.seed(123)
 
+args = commandArgs(trailingOnly=TRUE)
+
 # Inputted simulation parameters
-correlation=0.5    #Define correlation between exposures
-number_missing=2  #Define number of exposures to simulate missing values with
-n=1000          #Define number of observations per dataset
-q=4            #Define number of quantiles
-imputation_method="mice"  #Define imputation method to apply
-missing_percent=5
+correlation=as.numeric(args[1])    #Define correlation between exposures
+number_missing=as.numeric(args[2])  #Define number of exposures to simulate missing values with
+n=as.numeric(args[3])        #Define number of observations per dataset
+q=as.numeric(args[4])           #Define number of quantiles
+imputation_method=args[5]  #Define imputation method to apply
+missing_percent=as.numeric(args[6]) #Define percent of each exposure to set as missing
 
 # Other simulation parameters
 nexp <- 10 #number of exposures

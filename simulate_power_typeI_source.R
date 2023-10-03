@@ -99,7 +99,7 @@ generate_datasets <- function(N, n, q=10,betas, effect, sample_means, sample_cov
   return(datasets)
 }
 
-#Run WQS on dataframe and return estimate and CI for each exposure and overall effect
+#Run WQS on dataframe and return estimate, std error, and CI for each exposure and overall effect
 #nexp: number of exposures
 #q: number of quantiles that exposures will be transformed to
 #b: number of bootstrap iterations
@@ -131,12 +131,16 @@ simulate_wqs <- function(df, nexp=10, q=10 , b=100,covariates=F,Xs,i=1 ){
     # 2.5th/97.5th quartiles for exposures
     conf_band <- apply(results$bres[,1:nexp],2,quantile, probs = c(0.025,0.975)) %>% t() %>% as.data.frame() %>% rownames_to_column(var="exp")
     
-    #add 95% CI (z dist'n) for overall
+    #add standard error for exposures
+    conf_band$stde <- sapply(results$bres[1:nexp], function(x){sd(x)/sqrt(length((x)))})
+    
+    #add 95% CI and standard error (z dist'n) for overall
     overall_est <-summary(results)$coefficients[-1,1][1]
     overall_stde <- summary(results)$coefficients[-1,2][1]
     conf_band <- rbind(conf_band, c("Overall",
                                     overall_est - (1.96*overall_stde),
-                                    overall_est + (1.96*overall_stde)))
+                                    overall_est + (1.96*overall_stde),
+                                    overall_stde))
     
     #combine estimates and confidance band
     df_weights <- df_weights %>% inner_join(conf_band,by=c("exp")) %>%
@@ -210,10 +214,12 @@ calculate_CI_contains <- function(df_weights,betas_df,threshold,weights_all){
 calculate_power_typeI <- function(weights_all,Xs){
   output <- weights_all %>% 
     #convert to numeric columns
-    mutate(weight=as.numeric(estimate)) %>% 
+    mutate(weight=as.numeric(estimate),
+           stde=as.numeric(stde)) %>% 
     #Take average of betas for each x 
     reframe(true=mean(betas),
             mean=mean(weight),
+            average_stde = mean(stde),
             Power=case_when(betas !=0 ~ sum(contains0==0)/n()),
             TypeI=case_when(betas ==0 ~ sum(contains0==0)/n()),
             containsTrate=sum(containsT==1)/n(), .by = exp) %>% unique() %>%
@@ -246,7 +252,7 @@ simulate_analysis <- function(datasets, nexp=10, q=10 , b=100, betas, effect=1,c
   
   #output for WQS weights
   weights_all_wqs <- as.data.frame(matrix(nrow=0,ncol=8))
-  names(weights_all_wqs) <- c("exp","estimate","stde","lower","upper","containsT","contains0")
+  names(weights_all_wqs) <- c("exp","estimate","lower","upper","stder","containsT","contains0")
   
   #output for qgcomp weights
   weights_all_qgcomp <- weights_all_wqs
@@ -269,13 +275,15 @@ simulate_analysis <- function(datasets, nexp=10, q=10 , b=100, betas, effect=1,c
     betas_df$betas <- as.numeric(betas_df$betas)
     
     #Calculate whether interval contains 0 and contains true beta for this dataset 
-    weights_all_wqs <- calculate_CI_contains(df_weights=df_weights_wqs,
+    weights_df_wqs <- calculate_CI_contains(df_weights=df_weights_wqs,
                                              weights_all=weights_all_wqs,
                                              betas_df=betas_df,threshold=.001)
-    weights_all_qgcomp <- calculate_CI_contains(df_weights=df_weights_qgcomp,
+    weights_df_qgcomp <- calculate_CI_contains(df_weights=df_weights_qgcomp,
                                                 weights_all=weights_all_qgcomp,
                                                 betas_df=betas_df,threshold=.001)
-  }
+    weights_all_wqs <- rbind(weights_all_wqs,weights_df_wqs)
+    weights_all_qgcomp <- rbind(weights_all_qgcomp, weights_df_qgcomp)
+    }
   
   out_wqs <- calculate_power_typeI(weights_all_wqs,Xs)
   out_qgcomp <- calculate_power_typeI(weights_all_qgcomp,Xs)
