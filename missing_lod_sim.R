@@ -13,6 +13,14 @@ q=as.numeric(args[4])           #Define number of quantiles
 imputation_method=args[5]  #Define imputation method to apply
 missing_percent=as.numeric(args[6]) #Define percent of each exposure to set as missing
 
+print("Simulation with LOD missingness")
+print(paste0("Correlation: ", correlation))
+print(paste0("Number of missing exposures: ",number_missing))
+print(paste0("Sample size: ", n))
+print(paste0("Quantiles: ", q))
+print(paste0("Imputation method: ", imputation_method))
+print(paste0("Percent missingness: ", missing_percent))
+
 # Other simulation parameters
 nexp <- 10 #number of exposures
 sample_means <- rnorm(nexp,5,0.4) #Mean value for each exposure pulled from normal distribution
@@ -29,7 +37,7 @@ Xs <- sapply(seq(1,nexp),function(i){paste0("x",i)})
 sample_covariance_matrix <- create_covmatrix(min=correlation,max=correlation,n=nexp,S=S)
 
 #simulate N datasets
-datasets <- generate_datasets(N=N, n=n, q=q,betas=betas, effect=effect, sample_means=sample_means, sample_covariance_matrix=sample_covariance_matrix, sd=1)
+datasets <- generate_datasets(N=N, n=n, q=q,betas=betas, effect=effect, sample_means=sample_means, sample_covariance_matrix=sample_covariance_matrix, SD=1)
 
 #Get LODs based on lower quantile of exposures with n_missing lowest sample means
 lods <- data.frame(exp=Xs,means=sample_means) %>% 

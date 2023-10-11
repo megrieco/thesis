@@ -3,6 +3,7 @@ library(tidyverse)
 library(broom)
 library(janitor)
 library(corrplot)
+library(corpcor)
 library(gWQS)
 library(qgcomp)
 
@@ -22,7 +23,7 @@ cor2cov <- function(R,S){
 ### max: maximum possible correlation to be generated between variables
 ### n: number of variables
 ### S: vector of standard deviations for n variables
-create_covmatrix <- function(min,max,n,S, seed=1111){
+create_covmatrix <- function(min,max,n,S, seed=123){
   set.seed(seed)
   
   #Generate correlation matrix
@@ -33,6 +34,9 @@ create_covmatrix <- function(min,max,n,S, seed=1111){
   
   #Calculate covariance matrix based on correlations and standard deviations
   sample_covariance_matrix <- cor2cov(R,S)
+  
+  #make covariance matrix positive definite
+  sample_covariance_matrix <- make.positive.definite(sample_covariance_matrix)
   
   return(sample_covariance_matrix)
 }
@@ -48,7 +52,7 @@ create_covmatrix <- function(min,max,n,S, seed=1111){
 ### sd: standard deviation of outcome variable
 ### covariates: whether or not covariates will be included in the model
 ### covar_betas: if covariates = T, then the weights for each of the covariates (parity, bmi under, bmi_over, bmi_obese, alcohol use)
-generate_datasets <- function(N, n, q=10,betas, effect, sample_means, sample_covariance_matrix, sd, covariates=F,covar_betas=NULL){
+generate_datasets <- function(N, n, q=4,betas, effect, sample_means, sample_covariance_matrix, SD, covariates=F,covar_betas=NULL){
   datasets <- list()
   
   #loop through to create N simulated datasets
@@ -91,7 +95,7 @@ generate_datasets <- function(N, n, q=10,betas, effect, sample_means, sample_cov
       df <- x %>% mutate(mu=effect*(as.matrix(x_trans) %*% betas))
       
     }
-    df$y = rnorm(n,df$mu,sd)  # Y_i ~ N(mu_i, sd)
+    df$y = rnorm(n=n,mean=df$mu,sd=SD)  # Y_i ~ N(mu_i, sd)
     
     ### save whole dataset
     datasets[[i]] <- df

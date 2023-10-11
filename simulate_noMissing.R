@@ -10,6 +10,11 @@ correlation=as.numeric(args[1])   #Define correlation between exposures
 n=as.numeric(args[2])           #Define number of observations per dataset
 q=as.numeric(args[3])           #Define number of quantiles
 
+print("Simulation with no missing data")
+print(paste0("Correlation: ", correlation))
+print(paste0("Sample size: ", n))
+print(paste0("Quantiles: ", q))
+
 # Other simulation parameters
 nexp <- 10 #number of exposures
 sample_means <- rnorm(nexp,5,0.4) #Mean value for each exposure pulled from normal distribution
@@ -23,7 +28,7 @@ betas=c(0.1,0.25,0.65,rep(0,7)) #define weights of exposures
 sample_covariance_matrix <- create_covmatrix(min=correlation,max=correlation,n=nexp,S=S)
 
 #simulate N datasets
-datasets <- generate_datasets(N=N, n=n, q=q,betas=betas, effect=effect, sample_means=sample_means, sample_covariance_matrix=sample_covariance_matrix, sd=1)
+datasets <- generate_datasets(N=N, n=n, q=q,betas=betas, effect=effect, sample_means=sample_means, sample_covariance_matrix=sample_covariance_matrix, SD=1)
 
 sim_results <- simulate_analysis(datasets=datasets,nexp=nexp,q=q,b=b,betas=betas,effect=effect,covariates=F) %>%
   bind_rows(.id="method") %>% mutate(correlation=correlation,
