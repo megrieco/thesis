@@ -21,7 +21,7 @@ number_missings=(2 3 4 5) #number of exposures missing
 missing_percents=(5 10 20 30 50) #percent missingness for each exposure
 
 # correlation based on job array
-correlation =${correlations[$SLURM_ARRAY_TASK_ID]}
+correlation=${correlations[$SLURM_ARRAY_TASK_ID]}
 
 module load R/4.2.2
 
@@ -33,10 +33,10 @@ for imputation_method in ${imputation_methods[@]}; do
     for number_missing in ${number_missings[@]}; do
         for missing_percent in ${missing_percents[@]}; do
             #Run random missing case
-            Rscript missing_random_sim.R $correlation $number_missing $n $q $imputation_method $missing_percent
+            Rscript missing_random_sim.R "$correlation" "$number_missing" "$n" "$q" "$imputation_method" "$missing_percent"
 
             #Run LOD missing case
-            Rscript missing_lod_sim.R $correlation $number_missing $n $q $imputation_method $missing_percent
+            Rscript "missing_lod_sim.R" "$correlation" "$number_missing" "$n" "$q" "$imputation_method" "$missing_percent"
         done
     done
 done

@@ -174,11 +174,11 @@ simulate_qgcomp <- function(df,q=10,b=100,Xs,i=1){
     
     #add overall estimate and standard deviations
     df_weights$exp <- as.character(df_weights$exp)
-    df_weights <- rbind(df_weights,c("Overall",summary(results)$coefficients[-1,1]))
-    
+    df_weights <- rbind(df_weights,c("Overall",results$coef[[2]]))
+
     stde_weights <- summary(results[["fit"]])$coefficients[Xs,2]
     
-    df_weights$stde <- c(stde_weights ,Overall=summary(results)$coefficients[-1,2])
+    df_weights$stde <- c(stde_weights ,Overall=sqrt(results$var.coef[2]))
     
     ###use normal distribution to calculate confidence interval for all exposures/overall effect
     df_weights <- df_weights %>% 
